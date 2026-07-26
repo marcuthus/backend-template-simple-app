@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@marcuth/env": "^0.0.1",
-    "@nestjs/common": "^11.1.14",
+    "@nestjs/common": "^11.1.17",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.1.14",
     "@nestjs/jwt": "^11.0.2",
