@@ -56,14 +56,12 @@ export class AuthService {
         let payload: JwtRefreshPayload
 
         try {
-            payload = this.jwtService.verify<JwtRefreshPayload>(refreshToken, {
-                secret: this.configService.getOrThrow<string>("JWT_PRIVATE_KEY"),
-            })
+            payload = this.jwtService.verify<JwtRefreshPayload>(refreshToken)
         } catch (error) {
             throw new UnauthorizedException(messagesHelper.INVALID_AUTHORIZATION_TOKEN)
         }
 
-        if (payload.sub !== userId) {
+        if (payload.type !== "refresh" || payload.sub !== userId) {
             throw new UnauthorizedException(messagesHelper.INVALID_AUTHORIZATION_TOKEN)
         }
 
@@ -104,19 +102,21 @@ export class AuthService {
             return null
         }
 
-        const { password: _, ...rest } = user
+        const { password: _, apiKey: __, ...rest } = user
 
         return rest
     }
 
     async validateApiKey(apiKey: string) {
-        const user = await this.usersService.findOneByApiKey(apiKey)
+        const user = await this.usersService.safeFindOneByApiKey(apiKey)
 
         if (!user) {
             return null
         }
 
-        return user
+        const { password: _, apiKey: __, ...rest } = user
+
+        return rest
     }
 
     async changePassword(userId: string, currentPassword: string, newPassword: string) {

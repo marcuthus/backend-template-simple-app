@@ -1,3 +1,4 @@
+import { UnauthorizedException } from "@nestjs/common"
 import { Test, TestingModule } from "@nestjs/testing"
 import { ConfigService } from "@nestjs/config"
 import { JwtService } from "@nestjs/jwt"
@@ -15,7 +16,7 @@ describe("AuthService", () => {
         create: jest.fn(),
         findOne: jest.fn(),
         safeFindOneByEmail: jest.fn(),
-        findOneByApiKey: jest.fn(),
+        safeFindOneByApiKey: jest.fn(),
         changePassword: jest.fn(),
     }
 
@@ -86,6 +87,7 @@ describe("AuthService", () => {
             const result = await service.validateUser("test@example.com", "password123")
 
             expect(result).not.toHaveProperty("password")
+            expect(result).not.toHaveProperty("apiKey")
             expect(result?.email).toBe("test@example.com")
         })
 
@@ -102,13 +104,44 @@ describe("AuthService", () => {
     })
 
     describe("validateApiKey", () => {
-        it("should return user if api key is valid", async () => {
-            const user = { id: "1", apiKey: "encrypted-key" } as any
-            mockUsersService.findOneByApiKey.mockResolvedValue(user)
+        it("should return user without sensitive fields if api key is valid", async () => {
+            const user = { id: "1", apiKey: "encrypted-key", password: "hash" } as any
+            mockUsersService.safeFindOneByApiKey.mockResolvedValue(user)
 
             const result = await service.validateApiKey("valid-api-key")
 
-            expect(result).toEqual(user)
+            expect(result).toEqual({ id: "1" })
+        })
+
+        it("should return null if api key is invalid", async () => {
+            mockUsersService.safeFindOneByApiKey.mockResolvedValue(null)
+
+            await expect(service.validateApiKey("invalid")).resolves.toBeNull()
+        })
+    })
+
+    describe("refreshToken", () => {
+        it("should reject an access token used as refresh token", async () => {
+            mockJwtService.verify.mockReturnValue({ sub: "1", type: "access" })
+
+            await expect(service.refreshToken("1", { refreshToken: "token" })).rejects.toThrow(UnauthorizedException)
+        })
+
+        it("should reject a refresh token from another user", async () => {
+            mockJwtService.verify.mockReturnValue({ sub: "2", type: "refresh" })
+
+            await expect(service.refreshToken("1", { refreshToken: "token" })).rejects.toThrow(UnauthorizedException)
+        })
+
+        it("should issue new tokens for a valid refresh token", async () => {
+            mockJwtService.verify.mockReturnValue({ sub: "1", type: "refresh" })
+            mockJwtService.sign.mockReturnValue("token")
+            mockUsersService.findOne.mockResolvedValue({ id: "1", email: "a@b.com", role: UserRole.USER })
+
+            await expect(service.refreshToken("1", { refreshToken: "token" })).resolves.toEqual({
+                accessToken: "token",
+                refreshToken: "token",
+            })
         })
     })
 })
