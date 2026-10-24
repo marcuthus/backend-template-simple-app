@@ -5,6 +5,7 @@ import { JwtModule } from "@nestjs/jwt"
 
 import type { StringValue } from "ms"
 
+import { JwtRefreshTokenStrategy } from "./strategies/jwt-refresh-token.strategy"
 import { ApiKeyStrategy } from "./strategies/api-key.strategy"
 import { LocalStrategy } from "./strategies/local.strategy"
 import { JwtStrategy } from "./strategies/jwt.strategy"
@@ -18,13 +19,15 @@ import { AuthService } from "./auth.service"
         forwardRef(() => UsersModule),
         JwtModule.registerAsync({
             useFactory: (configService: ConfigService) => ({
-                privateKey: configService.getOrThrow<string>("JWT_PRIVATE_KEY"),
+                // "secret" serve para assinar e verificar (HS256)
+                secret: configService.getOrThrow<string>("JWT_PRIVATE_KEY"),
                 signOptions: { expiresIn: configService.getOrThrow<StringValue>("ACCESS_SIGN_EXPIRES_IN") },
             }),
             inject: [ConfigService],
         }),
     ],
-    providers: [AuthService, LocalStrategy, JwtStrategy, ApiKeyStrategy],
+    // JwtRefreshTokenStrategy não estava registrada: POST /auth/refresh-token sempre falhava
+    providers: [AuthService, LocalStrategy, JwtStrategy, ApiKeyStrategy, JwtRefreshTokenStrategy],
     controllers: [AuthController],
     exports: [AuthService],
 })

@@ -9,6 +9,11 @@ import { CryptoService } from "../crypto/crypto.service"
 import { UpdateUserDto } from "./dto/update-user.dto"
 import { CreateUserDto } from "./dto/create-user.dto"
 
+const sensitiveFields = {
+    password: true,
+    apiKey: true,
+} as const
+
 @Injectable()
 export class UsersService {
     constructor(
@@ -19,10 +24,9 @@ export class UsersService {
     async create(createUserDto: CreateUserDto) {
         const { password, ...rest } = createUserDto
 
-        const existingUser = await this.prisma.user.findUnique({
+        const existingUser = await this.prisma.user.findFirst({
             where: {
-                email: createUserDto.email,
-                username: createUserDto.username,
+                OR: [{ email: createUserDto.email }, { username: createUserDto.username }],
             },
             select: {
                 email: true,
@@ -45,13 +49,20 @@ export class UsersService {
         const encryptedApiKey = this.cryptoService.encrypt(generatedApiKey)
         const hashedPassword = await this.cryptoService.hashPassword(password)
 
-        return await this.prisma.user.create({
+        const user = await this.prisma.user.create({
             data: {
                 ...rest,
                 apiKey: encryptedApiKey,
                 password: hashedPassword,
             },
+            omit: sensitiveFields,
         })
+
+        // A API key em texto puro só é exibida uma vez, na criação (no banco ela fica criptografada).
+        return {
+            ...user,
+            apiKey: generatedApiKey,
+        }
     }
 
     async findAll({ page, perPage }: PaginateOptions) {
@@ -61,10 +72,7 @@ export class UsersService {
         })
 
         return await paginate<User, Prisma.UserFindManyArgs>(this.prisma.user, {
-            omit: {
-                password: true,
-                apiKey: true,
-            },
+            omit: sensitiveFields,
         })
     }
 
@@ -73,10 +81,7 @@ export class UsersService {
             where: {
                 id: id,
             },
-            omit: {
-                apiKey: true,
-                password: true,
-            },
+            omit: sensitiveFields,
         })
 
         if (!user) {
@@ -123,23 +128,22 @@ export class UsersService {
         }
     }
 
-    async findOneByApiKey(apiKey: string) {
+    async safeFindOneByApiKey(apiKey: string) {
         const encryptedApiKey = this.cryptoService.encrypt(apiKey)
 
-        const user = await this.prisma.user.findUnique({
+        return await this.prisma.user.findUnique({
             where: {
                 apiKey: encryptedApiKey,
             },
         })
+    }
+
+    async findOneByApiKey(apiKey: string) {
+        const user = await this.safeFindOneByApiKey(apiKey)
 
         if (!user) {
-            throw new NotFoundException(
-                messagesHelper.OBJECT_NOT_FOUND({
-                    name: "User",
-                    property: "apiKey",
-                    value: apiKey,
-                }),
-            )
+            // Não inclui a chave na mensagem para não ecoar segredos em respostas/logs.
+            throw new NotFoundException(messagesHelper.INVALID_API_KEY)
         }
 
         return user
@@ -172,6 +176,7 @@ export class UsersService {
             data: {
                 ...updateUserDto,
             },
+            omit: sensitiveFields,
         })
     }
 

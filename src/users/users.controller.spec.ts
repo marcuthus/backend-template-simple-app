@@ -1,5 +1,9 @@
+import { GUARDS_METADATA } from "@nestjs/common/constants"
 import { Test, TestingModule } from "@nestjs/testing"
 import { Reflector } from "@nestjs/core"
+
+import { ROLES_KEY } from "../auth/decorators/roles.decorator"
+import { UserRole } from "../generated/prisma/enums"
 
 import { RESOURCE_SERVICE_KEY } from "../common/guards/ownership.guard"
 import { UsersController } from "./users.controller"
@@ -69,6 +73,17 @@ describe("UsersController", () => {
         it("should call service.remove", async () => {
             await controller.remove("1")
             expect(service.remove).toHaveBeenCalledWith("1")
+        })
+    })
+
+    describe("authorization metadata", () => {
+        it("only admins can create users directly", () => {
+            expect(Reflect.getMetadata(ROLES_KEY, UsersController.prototype.create)).toEqual([UserRole.ADMIN])
+        })
+
+        it("findOne is protected by the ownership guard", () => {
+            const guards = Reflect.getMetadata(GUARDS_METADATA, UsersController.prototype.findOne) ?? []
+            expect(guards).toHaveLength(1)
         })
     })
 })

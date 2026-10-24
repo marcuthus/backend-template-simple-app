@@ -14,6 +14,7 @@ describe("UsersService", () => {
     const mockPrisma = {
         user: {
             findUnique: jest.fn(),
+            findFirst: jest.fn(),
             create: jest.fn(),
             findMany: jest.fn(),
             update: jest.fn(),
@@ -55,24 +56,36 @@ describe("UsersService", () => {
             role: UserRole.USER,
         }
 
-        it("should create a user successfully", async () => {
-            mockPrisma.user.findUnique.mockResolvedValue(null)
+        it("should create a user without returning the password hash", async () => {
+            mockPrisma.user.findFirst.mockResolvedValue(null)
             mockCrypto.encrypt.mockReturnValue("encrypted-api-key")
             mockCrypto.hashPassword.mockResolvedValue("hashed-password")
 
-            const createdUser = { id: "1", ...createUserDto, password: "hashed-password", apiKey: "encrypted-api-key" }
-            mockPrisma.user.create.mockResolvedValue(createdUser)
+            const { password: _, ...publicUser } = createUserDto
+            mockPrisma.user.create.mockResolvedValue({ id: "1", ...publicUser })
 
             const result = await service.create(createUserDto)
 
-            expect(result).toEqual(createdUser)
-            expect(mockPrisma.user.create).toHaveBeenCalled()
+            expect(result).not.toHaveProperty("password")
+            expect(result.apiKey).not.toBe("encrypted-api-key")
+            expect(mockPrisma.user.create.mock.calls[0][0].omit).toEqual({ password: true, apiKey: true })
         })
 
         it("should throw ConflictException if user already exists", async () => {
-            mockPrisma.user.findUnique.mockResolvedValue({ email: "test@example.com" })
+            mockPrisma.user.findFirst.mockResolvedValue({ email: "test@example.com" })
 
             await expect(service.create(createUserDto)).rejects.toThrow(ConflictException)
+        })
+
+        it("should detect duplicated email or username (OR, not AND)", async () => {
+            mockPrisma.user.findFirst.mockResolvedValue({ email: "other@example.com" })
+
+            await expect(service.create(createUserDto)).rejects.toThrow(ConflictException)
+            expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { OR: [{ email: createUserDto.email }, { username: createUserDto.username }] },
+                }),
+            )
         })
     })
 
@@ -101,6 +114,7 @@ describe("UsersService", () => {
             const result = await service.update("1", { name: "Updated Name" })
 
             expect(result.name).toBe("Updated Name")
+            expect(mockPrisma.user.update.mock.calls[0][0].omit).toEqual({ password: true, apiKey: true })
         })
 
         it("should throw NotFoundException if user to update is not found", async () => {
